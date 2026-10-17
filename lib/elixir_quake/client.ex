@@ -6,7 +6,8 @@ defmodule ElixirQuake.Client do
       mix quake --dir /games/quake
 
   The whole pane is the game's own picture (`ElixirQuake.Render`), drawn at the pane's
-  size in whatever the terminal shows best.
+  size in whatever the terminal shows best, or by a graphics card (`ElixirQuake.Gpu`)
+  when the picture options ask for `gpu` or `window`.
 
   ## Keys
 
@@ -32,7 +33,7 @@ defmodule ElixirQuake.Client do
 
   @behaviour Cauldron2D.Client.Game
 
-  alias ElixirQuake.{Assets, Game, Menu, Render, View}
+  alias ElixirQuake.{Assets, Game, Gpu, Menu, Render, View}
 
   @atlas :elixir_quake
 
@@ -225,17 +226,15 @@ defmodule ElixirQuake.Client do
 
   @impl true
   def scene(view, look) do
+    opts = [menu: Map.get(look, :menu), options: Map.get(look, :options, %{})]
+
     %{
       focus: {0.0, 0.0},
       bounds: :unbounded,
       cell: fn _cell -> nil end,
       movers: [],
-      picture: fn size, aspect ->
-        Render.picture(view, size, aspect,
-          menu: Map.get(look, :menu),
-          options: Map.get(look, :options, %{})
-        )
-      end
+      picture: fn size, aspect -> Render.picture(view, size, aspect, opts) end,
+      gpu: Gpu.scene(view, opts)
     }
   end
 

@@ -18,6 +18,7 @@ defmodule ElixirQuake.Menu.Draw do
     gamma: "            Brightness",
     mouse_speed: "           Mouse Speed",
     volume: "          Sound Volume",
+    drawing: "               Drawing",
     always_run: "            Always Run",
     invert_mouse: "          Invert Mouse",
     use_mouse: "             Use Mouse"
@@ -116,6 +117,10 @@ defmodule ElixirQuake.Menu.Draw do
   defp value(canvas, :gamma, s, y), do: slider(canvas, (1.0 - s.options.gamma) / 0.5, y)
   defp value(canvas, :mouse_speed, s, y), do: slider(canvas, (s.options.mouse_speed - 1) / 10, y)
   defp value(canvas, :volume, s, y), do: slider(canvas, s.sfx, y)
+
+  defp value(canvas, :drawing, s, y),
+    do: print(canvas, drawing_text(Map.get(s, :drawing, :auto)), {220, y})
+
   defp value(canvas, :always_run, s, y), do: check(canvas, s.options.always_run, y)
   defp value(canvas, :invert_mouse, s, y), do: check(canvas, s.options.invert_mouse, y)
   defp value(canvas, :use_mouse, s, y), do: check(canvas, Menu.mouse?(s), y)
@@ -127,6 +132,11 @@ defmodule ElixirQuake.Menu.Draw do
     canvas = Enum.reduce(0..9, canvas, &char(&2, 129, {220 + &1 * 8, y}))
     canvas |> char(130, {300, y}) |> char(131, {220 + trunc(72 * range), y})
   end
+
+  defp drawing_text(:auto), do: "auto"
+  defp drawing_text(:software), do: "software"
+  defp drawing_text(:pane), do: "card"
+  defp drawing_text(:window), do: "window"
 
   defp check(canvas, true, y), do: print(canvas, "on", {220, y})
   defp check(canvas, false, y), do: print(canvas, "off", {220, y})

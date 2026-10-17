@@ -19,78 +19,30 @@ defmodule ElixirQuake.Render do
     * `:menu` — an open `ElixirQuake.Menu`, drawn over the darkened picture
   """
 
-  alias Cauldron3D.{Billboard, Camera, Frame, Mesh, Polygon, Texture, Vec}
+  alias Cauldron3D.{Billboard, Camera, Frame, Mesh, Polygon, Vec}
   alias Cauldron3D.Bsp.{Draw, Surfaces}
   alias Cauldron3D.Formats.{Mdl, Spr}
-  alias ElixirQuake.{Assets, LightPoint, StatusBar, Text}
+  alias ElixirQuake.{Assets, LightPoint, Screen}
   alias FrenchCurve.Raster
 
   @liquid [amplitude: 8.0, wavelength: 50.27, speed: 0.159]
 
   @doc "The picture of `view` at `{width, height}` pixels."
   @spec picture(map(), {pos_integer(), pos_integer()}, number(), keyword()) :: Raster.t()
-  def picture(view, {width, height}, aspect, opts \\ []) do
-    width = max(width, 32)
-    height = max(height, 20)
+  def picture(view, size, aspect, opts \\ []) do
     options = Keyword.get(opts, :options, %{})
     %{bsp: bsp} = Assets.map(view.map)
-    palette = palette(view, Map.get(options, :gamma, 1.0))
-    full_screen? = view.intermission != nil or view.finale != nil
-    size = if full_screen?, do: 120, else: Map.get(options, :screen_size, 100)
-    lines = bar_lines(size)
-    bar = min(round(lines * width / 320 * aspect), div(height, 3))
-    {view_width, view_height} = viewport(size, {width, height - bar})
-    world = world(view, bsp, {view_width, view_height}, aspect)
-    at = {div(width - view_width, 2), div(height - bar - view_height, 2)}
+    layout = Screen.layout(view, size, aspect, options)
+    world = world(view, bsp, layout.view, aspect)
 
     frame =
-      width
-      |> backdrop(height, size)
-      |> Frame.blit(world, at)
-      |> status(view, bar, lines)
-      |> messages(view, aspect)
-      |> overlay(view, aspect)
-      |> menu(Keyword.get(opts, :menu))
+      layout
+      |> Screen.backdrop()
+      |> Frame.blit(world, layout.at)
+      |> Screen.layers(view, layout, Keyword.get(opts, :menu))
 
-    Raster.from_rgba(width, height, Frame.rgba(frame, palette))
-  end
-
-  defp bar_lines(size) when size >= 120, do: 0
-  defp bar_lines(size) when size >= 110, do: 24
-  defp bar_lines(_size), do: 48
-
-  defp viewport(size, {width, height}) when size >= 100, do: {width, height}
-
-  defp viewport(size, {width, height}),
-    do: {max(div(width * size, 100), 8), max(div(height * size, 100), 8)}
-
-  defp backdrop(width, height, size) when size >= 100, do: Frame.new(width, height, 0)
-
-  defp backdrop(width, height, _size) do
-    case Assets.pictures()["backtile"] do
-      nil -> Frame.new(width, height, 0)
-      tile -> tiled(tile, width, height)
-    end
-  end
-
-  defp tiled(tile, width, height) do
-    rows =
-      for y <- 0..(height - 1) do
-        row = binary_part(tile.pixels, rem(y, tile.height) * tile.width, tile.width)
-        binary_part(:binary.copy(row, div(width, tile.width) + 1), 0, width)
-      end
-
-    %Frame{width: width, height: height, pixels: IO.iodata_to_binary(rows)}
-  end
-
-  defp menu(frame, nil), do: frame
-
-  defp menu(frame, menu) do
-    canvas = ElixirQuake.Menu.Draw.canvas(menu, System.monotonic_time(:millisecond) / 1000)
-
-    frame
-    |> ElixirQuake.Menu.Draw.fade()
-    |> Frame.blit(Frame.scale(canvas, frame.width, frame.height), {0, 0}, 255)
+    palette = Screen.palette(view, Map.get(options, :gamma, 1.0))
+    Raster.from_rgba(layout.width, layout.height, Frame.rgba(frame, palette))
   end
 
   defp world(view, bsp, {width, height}, aspect) do
@@ -178,15 +130,9 @@ defmodule ElixirQuake.Render do
       pitch: radians(pitch),
       roll: radians(roll),
       skin: thing.skin,
-      light: shading(lit),
+      light: LightPoint.shading(lit),
       cull: :counter_clockwise
     )
-  end
-
-  defp shading(lit) do
-    ambient = min(lit, 128)
-    shade = max(min(lit, 192 - ambient), 0)
-    {ambient * 0.85 + 16, shade * 0.6, {0.4, 0.3, 0.86}}
   end
 
   defp sprite(%Spr{} = sprite, thing, view, sight) do
@@ -274,7 +220,7 @@ defmodule ElixirQuake.Render do
           yaw: radians(yaw),
           pitch: -radians(pitch),
           roll: radians(roll),
-          light: shading(lit),
+          light: LightPoint.shading(lit),
           cull: :counter_clockwise,
           depth: :always
         )
@@ -282,135 +228,5 @@ defmodule ElixirQuake.Render do
       _ ->
         []
     end
-  end
-
-  defp status(frame, _view, 0, _lines), do: frame
-  defp status(frame, _view, _rows, 0), do: frame
-
-  defp status(frame, view, rows, lines) do
-    whole = StatusBar.draw(view.stats, view.time)
-
-    shown = %Frame{
-      width: 320,
-      height: lines,
-      pixels: binary_part(whole.pixels, (48 - lines) * 320, lines * 320)
-    }
-
-    Frame.blit(frame, Frame.scale(shown, frame.width, rows), {0, frame.height - rows}, 255)
-  end
-
-  defp messages(frame, view, aspect) do
-    scale = frame.width / 320
-
-    frame =
-      if view.notify == [] do
-        frame
-      else
-        lines = Text.centred(view.notify, 320, 255)
-
-        Frame.blit(
-          frame,
-          Frame.scale(lines, frame.width, max(round(lines.height * scale * aspect), 1)),
-          {0, 0},
-          255
-        )
-      end
-
-    case view.center do
-      nil ->
-        frame
-
-      lines ->
-        text = Text.centred(lines, 320, 255)
-        scaled = Frame.scale(text, frame.width, max(round(text.height * scale * aspect), 1))
-        Frame.blit(frame, scaled, {0, div(frame.height, 3)}, 255)
-    end
-  end
-
-  defp overlay(frame, %{finale: {text, since}} = view, aspect) do
-    shown = String.slice(text, 0, max(trunc((view.time - since) * 8), 0))
-    lines = String.split(shown, "\n")
-    canvas = Text.centred(lines, 320, 255)
-
-    scaled =
-      Frame.scale(canvas, frame.width, max(round(canvas.height * frame.width / 320 * aspect), 1))
-
-    Frame.blit(frame, scaled, {0, div(frame.height, 4)}, 255)
-  end
-
-  defp overlay(frame, %{intermission: at} = view, _aspect) when at != nil do
-    canvas = tally(view.tally)
-    Frame.blit(frame, Frame.scale(canvas, frame.width, frame.height), {0, 0}, 255)
-  end
-
-  defp overlay(frame, _view, _aspect), do: frame
-
-  defp tally(tally) do
-    pictures = Assets.pictures()
-    canvas = Frame.new(320, 200, 255)
-    canvas = put(canvas, Assets.picture("gfx/complete.lmp"), {64, 24})
-    canvas = put(canvas, Assets.picture("gfx/inter.lmp"), {0, 56})
-    minutes = div(tally.seconds, 60)
-    seconds = rem(tally.seconds, 60)
-
-    canvas
-    |> digits(pictures, {160, 64}, minutes)
-    |> put(pictures["num_colon"], {234, 64})
-    |> put(pictures["num_#{div(seconds, 10)}"], {246, 64})
-    |> put(pictures["num_#{rem(seconds, 10)}"], {266, 64})
-    |> digits(pictures, {160, 104}, tally.secrets)
-    |> put(pictures["num_slash"], {232, 104})
-    |> digits(pictures, {240, 104}, tally.total_secrets)
-    |> digits(pictures, {160, 144}, tally.monsters)
-    |> put(pictures["num_slash"], {232, 144})
-    |> digits(pictures, {240, 144}, tally.total_monsters)
-  end
-
-  defp digits(canvas, pictures, {x, y}, value) do
-    text = value |> Integer.to_string() |> String.slice(-3, 3)
-    x = x + (3 - byte_size(text)) * 24
-
-    text
-    |> String.to_charlist()
-    |> Enum.with_index()
-    |> Enum.reduce(canvas, fn {char, i}, acc ->
-      put(acc, pictures["num_" <> <<char>>], {x + i * 24, y})
-    end)
-  end
-
-  defp put(canvas, nil, _at), do: canvas
-  defp put(canvas, %Texture{} = picture, at), do: Frame.blit(canvas, picture, at, 255)
-
-  defp palette(view, gamma) do
-    base = Assets.get().palette
-    {r, g, b, a} = blend(view.washes)
-
-    for <<cr, cg, cb <- base>>, into: <<>> do
-      <<lift(cr + (r - cr) * a, gamma), lift(cg + (g - cg) * a, gamma),
-        lift(cb + (b - cb) * a, gamma)>>
-    end
-  end
-
-  defp lift(value, gamma) when gamma == 1.0, do: value |> round() |> max(0) |> min(255)
-
-  defp lift(value, gamma),
-    do:
-      (255 * :math.pow((max(value, 0) + 0.5) / 255.5, gamma) + 0.5)
-      |> trunc()
-      |> max(0)
-      |> min(255)
-
-  defp blend(washes) do
-    Enum.reduce(washes, {0.0, 0.0, 0.0, 0.0}, fn {{sr, sg, sb}, percent}, {r, g, b, a} ->
-      share = percent / 255
-
-      if share <= 0 do
-        {r, g, b, a}
-      else
-        a = a + share * (1 - a)
-        part = share / a
-        {r * (1 - part) + sr * part, g * (1 - part) + sg * part, b * (1 - part) + sb * part, a}
-      end
-    end)
   end
 end

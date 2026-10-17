@@ -8,12 +8,15 @@ defmodule ElixirQuake.Menu do
 
   `event/3` returns what `Cauldron2D.Client.Game`'s `menu_event/3` returns, the menu
   holding the settings it shows (`:settings`). The options
-  it changes live in the settings: key bindings, the sound volume, and under
+  it changes live in the settings: key bindings, the sound volume, where the game is
+  drawn (`:drawing`: auto, software, the graphics card in the terminal, or a window), and
+  under
   `:options` the screen size (30 to 120), gamma (0.5 to 1.0, lower brighter), mouse
   speed (1 to 11), always run and invert mouse. "Use mouse" adds or removes the mouse
   bindings of the `mouse` preset. New game is sent to the world as the request
-  `:new_game`; quitting leaves it. Multiplayer, loading and saving answer that they are
-  not part of this game.
+  `:new_game`; quitting leaves it, its prompt answered yes by y or a controller's `A`
+  (`{:key, :enter, [:pad]}`) and no by n or escape, other keys ignored. Multiplayer,
+  loading and saving answer that they are not part of this game.
   """
 
   alias Cauldron2D.Input
@@ -54,11 +57,13 @@ defmodule ElixirQuake.Menu do
     :gamma,
     :mouse_speed,
     :volume,
+    :drawing,
     :always_run,
     :invert_mouse,
     :use_mouse
   ]
   @counts %{main: 5, single: 3}
+  @drawings [:auto, :software, :pane, :window]
   @help_pages 6
 
   @doc "The player options and their defaults."
@@ -90,6 +95,9 @@ defmodule ElixirQuake.Menu do
   @spec event(t(), term(), map()) :: map()
   def event(%__MODULE__{grab?: true} = menu, event, settings), do: grab(menu, event, settings)
 
+  def event(%__MODULE__{page: :quit} = menu, {:key, :enter, [:pad]}, settings),
+    do: page(:quit, :y, menu, settings)
+
   def event(%__MODULE__{} = menu, event, settings) do
     case key_of(event) do
       nil -> stay(menu, settings)
@@ -108,7 +116,11 @@ defmodule ElixirQuake.Menu do
   defp page(:help, :escape, menu, settings), do: stay(%{menu | page: :main}, settings)
 
   defp page(:quit, :y, _menu, settings), do: %{menu: nil, settings: settings, leave: true}
-  defp page(:quit, _key, menu, settings), do: stay(%{menu | page: menu.back}, settings)
+
+  defp page(:quit, key, menu, settings) when key in [:escape, :n],
+    do: stay(%{menu | page: menu.back}, settings)
+
+  defp page(:quit, _key, menu, settings), do: stay(menu, settings)
 
   defp page(:notice, _key, menu, settings),
     do: stay(%{menu | page: menu.back, notice: nil}, settings)
@@ -196,6 +208,12 @@ defmodule ElixirQuake.Menu do
     do: put_option(s, :mouse_speed, clamp(s.options.mouse_speed + d * 0.5, 1.0, 11.0))
 
   defp adjust(:volume, d, s), do: %{s | sfx: clamp(Float.round(s.sfx + d * 0.1, 2), 0.0, 1.0)}
+
+  defp adjust(:drawing, d, s) do
+    index = Enum.find_index(@drawings, &(&1 == Map.get(s, :drawing, :auto))) || 0
+    Map.put(s, :drawing, Enum.at(@drawings, Integer.mod(index + d, length(@drawings))))
+  end
+
   defp adjust(:always_run, _d, s), do: put_option(s, :always_run, not s.options.always_run)
 
   defp adjust(:invert_mouse, _d, s) do

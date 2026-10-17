@@ -11,6 +11,7 @@ defmodule ElixirQuake.Assets do
   Everything is kept in `:persistent_term`; reading it copies nothing.
   """
 
+  alias Cauldron2D.Drafter.Launcher
   alias Cauldron3D.Formats.{Bsp, Files, Mdl, Spr, Wad2, Wav}
   alias Cauldron3D.Texture
   alias TuningFork.{Sample, Voice}
@@ -20,6 +21,26 @@ defmodule ElixirQuake.Assets do
     {{-16.0, -16.0, -24.0}, {16.0, 16.0, 32.0}},
     {{-32.0, -32.0, -24.0}, {32.0, 32.0, 64.0}}
   ]
+
+  @doc "`:ok` when `path` is a Quake game directory `load/1` can read, else `{:error, text}` for a person to read."
+  @spec check(Path.t()) :: :ok | {:error, String.t()}
+  def check(path) do
+    with {:ok, files} <- Files.open(path, within: "id1"),
+         palette when is_binary(palette) <- Files.read(files, "gfx/palette.lmp") do
+      :ok
+    else
+      _other -> {:error, "no Quake files here (looking for id1 with pak0.pak)"}
+    end
+  end
+
+  @doc "A Quake game directory in Steam's usual places that `check/1` accepts, or `nil`."
+  @spec discover() :: Path.t() | nil
+  def discover do
+    "Quake"
+    |> Launcher.steam_folders()
+    |> Enum.flat_map(&[&1, Path.join(&1, "rerelease")])
+    |> Enum.find(&(check(&1) == :ok))
+  end
 
   @doc "Open the game directory at `path` (its `id1`, or the directory holding one) and read its palette and light table."
   @spec load(Path.t()) :: {:ok, map()} | {:error, term()}

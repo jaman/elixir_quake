@@ -11,6 +11,8 @@ defmodule ElixirQuake.LightPoint do
   alias Cauldron3D.{Bsp, Vec}
   alias Cauldron3D.Bsp.Face
 
+  @darkest_ambient 5
+
   @doc "The light (0 to 255) at `point`, styles scaled by `styles` (a tuple of scales by style, 256 normal)."
   @spec at(Bsp.t(), Vec.t(), tuple()) :: number()
   def at(%Bsp{} = bsp, {x, y, z} = point, styles) do
@@ -20,6 +22,21 @@ defmodule ElixirQuake.LightPoint do
       nil -> 0
       light -> min(light, 255)
     end
+  end
+
+  @doc """
+  How a model standing in light `lit` (as `at/3` gives it) is shaded, as Quake's software
+  renderer shades alias models, in the form `Cauldron3D.Mesh.polygons/2` takes `:light`:
+  `{ambient, directional, toward}`, each vertex lit
+  `ambient + directional * max(normal · toward, 0)`. `ambient` is `lit` held to 5..128,
+  `directional` is `lit` held so that the two add to at most 192, and `toward` is the
+  map's +x.
+  """
+  @spec shading(number()) :: {number(), number(), Vec.t()}
+  def shading(lit) do
+    ambient = min(lit, 128)
+    shade = max(min(lit, 192 - ambient), 0)
+    {max(ambient, @darkest_ambient), shade, {1.0, 0.0, 0.0}}
   end
 
   defp walk(_bsp, node, _from, _to, _styles) when node < 0, do: nil
